@@ -1,6 +1,11 @@
 # AssetTrack (Contoso Industries)
 
-AssetTrack is Contoso Industries' internal application for tracking hardware assets (laptops, monitors, phones, badges, docking stations) and the employees they're assigned to. It is intentionally built as a **polyglot microservices** application so that course learners can practice agentic, Copilot-driven development across a realistic multi-language stack — including a couple of older Java services that still need modernization.
+> [!IMPORTANT]
+> **Security Warning**
+>
+> This repository contains intentionally insecure code and an intentionally vulnerable application for educational and security-testing purposes only. Do not deploy it to production, expose it to the public internet, or run it on systems containing sensitive data. Use it only in an isolated, authorized environment, such as a sandbox or disposable virtual machine. You are responsible for preventing unauthorized access, misuse, or unintended impact on your systems and networks.
+
+AssetTrack is Contoso Industries' internal application for tracking hardware assets (laptops, monitors, phones, badges, docking stations) and the employees they're assigned to. It is intentionally built as a **polyglot microservices** application so that course learners can practice agentic, Copilot-driven development across a realistic multi-language stack.
 
 ## Architecture at a glance
 
@@ -9,7 +14,7 @@ flowchart LR
     browser([Browser]) --> web
 
     subgraph frontend
-      web[web<br/>Astro SSR + React islands]
+      web[web<br/>Astro SSR / BFF]
     end
 
     subgraph modern[Modern services]
@@ -19,38 +24,43 @@ flowchart LR
       notifications[notifications-svc<br/>Python FastAPI]
     end
 
-    subgraph behind[Services a generation behind - due for a currency upgrade]
-      audit[audit-svc<br/>Java 17 / Spring Boot 3.5]
-      auth[auth-svc<br/>Java 17 / Spring Boot 3.5]
-    end
+    audit[audit-svc<br/>Java 21 / Spring Boot 4.1]
+    auth[auth-svc<br/>Java 21 / Spring Boot 4.1]
 
     web --> assets
     web --> workforce
     web --> reporting
-    web --> auth
     workforce -.audit hook<br/>not yet wired.-> audit
-    workforce --> notifications
-    assets -.JWKs.-> auth
-    workforce -.JWKs.-> auth
+    workforce -->|assignment-created webhook| notifications
+    web -.token flow<br/>not yet wired.-> auth
+    assets -.JWT validation<br/>not yet wired.-> auth
+    workforce -.JWT validation<br/>not yet wired.-> auth
 ```
 
-All services talk over **REST/JSON**. Most backend services own a local SQLite database; `web` is stateless, and `reporting-svc` reads live data from other services instead of owning a primary database.
+The browser receives server-rendered HTML from `web`; backend integration is
+primarily REST/JSON, with multipart upload for CSV imports. Services own their
+data independently, but not every service has a database. Cross-service IDs are
+application-level references and do not have database-enforced referential
+integrity.
 
-| Service              | Stack                                  | Port  | Owns                                |
-|----------------------|----------------------------------------|-------|-------------------------------------|
-| `web`                | Astro (SSR) + React islands + Bootstrap 5 | 4321  | UI, BFF composition                 |
-| `assets-svc`         | .NET 10 (ASP.NET Core minimal APIs)    | 5001  | Asset CRUD + search                 |
-| `workforce-svc`      | Java 21 / Spring Boot 3                | 5002  | Employees + Assignments             |
-| `reporting-svc`      | Python 3.12 / FastAPI                  | 5003  | Reports, CSV bulk import            |
-| `notifications-svc`  | Python 3.12 / FastAPI                  | 5004  | Webhook receiver, email/Slack stub  |
-| `audit-svc`          | Java 17 / Spring Boot 3.5 *(a generation behind)* | 5005  | Audit event log                     |
-| `auth-svc`           | Java 17 / Spring Boot 3.5 *(a generation behind)* | 5006  | JWT issuer, user lookup             |
+| Service              | Stack                                  | Port  | Responsibility / storage |
+|----------------------|----------------------------------------|-------|--------------------------|
+| `web`                | Astro SSR + Bootstrap 5; React integration installed but currently unused | 4321 | UI and server-side backend composition; no database |
+| `assets-svc`         | .NET 10 (ASP.NET Core minimal APIs)    | 5001  | Asset CRUD/search; owns SQLite `assets` data |
+| `workforce-svc`      | Java 21 / Spring Boot 3.5              | 5002  | Employees and assignments; owns SQLite workforce data |
+| `reporting-svc`      | Python 3.12 / FastAPI                  | 5003  | Live reports and CSV import proxy; no primary database |
+| `notifications-svc`  | Python 3.12 / FastAPI                  | 5004  | Assignment webhook receiver and delivery stubs; owns a SQLite event log |
+| `audit-svc`          | Java 21 / Spring Boot 4.1              | 5005 | Audit event log in SQLite |
+| `auth-svc`           | Java 21 / Spring Boot 4.1              | 5006 | User lookup, JWT issuance, and JWKS publication in SQLite |
+
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for service boundaries, request flows,
+data initialization, integration behavior, and currently unenforced rules.
 
 ## Quick start (Codespaces or local devcontainer)
 
 1. Open the repository in GitHub Codespaces, or in VS Code with the Dev Containers extension.
 2. Wait for the devcontainer to finish provisioning. It installs:
-   - Node 22, .NET 10, Python 3.12, Maven, and **Java 21** (the JDK for all three JVM services; the two currency-lagging services target Java 17 bytecode and build fine on JDK 21).
+   - Node 22, .NET 10, Python 3.12, Maven, and **Java 21** (the JDK and bytecode target for all three JVM services).
    - `concurrently` and editable Python installs for the FastAPI services (via `postCreateCommand`).
 3. From the workspace root:
 
@@ -82,11 +92,9 @@ docker compose up --build
 
 Open http://localhost:4321.
 
-## Repository tour
+## Running a single service for development
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for a structured repo tour: purpose, modules, entry points, data layers, scripts, and known gaps for each stack.
-
-Each service folder also has its own `README.md` with native (non-Docker) run instructions and per-service scripts. See:
+Each service folder has its own `README.md` with native (non-Docker) run instructions and per-service scripts. See:
 
 - [`services/web/README.md`](services/web/README.md)
 - [`services/assets-svc/README.md`](services/assets-svc/README.md)
@@ -98,25 +106,49 @@ Each service folder also has its own `README.md` with native (non-Docker) run in
 
 ## Auth
 
-`auth-svc` issues RS256 JWTs from `POST /token`. Other services validate tokens via the JWKs document at `http://auth-svc:8080/.well-known/jwks`.
+`auth-svc` issues RS256 JWTs from `POST /token` and publishes its public key at
+`GET /.well-known/jwks`.
 
-For course exercises that aren't about auth, the frontend runs with `DEV_TOKEN_MODE=true`, which uses a pre-issued long-lived token so learners aren't blocked by login flows. To exercise the real flow, set it to `false`.
+JWT validation and frontend token forwarding are **not currently implemented**.
+`AUTH_JWKS_URL` and `DEV_TOKEN_MODE` are configured as placeholders for the auth
+course exercise, but application code does not currently consume them. Setting
+`DEV_TOKEN_MODE=false` does not enable an end-to-end login flow; all service
+endpoints are presently unauthenticated.
 
 ## What's intentionally broken or missing
 
 This is a teaching codebase. Several services have deliberate gaps that drive the course exercises (see [`exercises.md`](exercises.md)). For example:
 
-- The two legacy Java services use raw JDBC string concatenation and have SQL injection.
-- `reporting-svc` has old-style Python helpers and an import endpoint that crashes on bad rows.
-- `assets-svc` accepts unvalidated input on create.
+- `auth-svc` and `audit-svc` contain SQL injection targets; auth also uses
+  plaintext seeded passwords and a new in-memory signing key after each restart.
+- JWTs are issued but not validated by other services.
+- `reporting-svc` has old-style Python helpers and a non-transactional import
+  endpoint that can partially import a CSV before a bad row aborts the request.
+- `assets-svc` accepts unvalidated input on create and update.
 - The dashboard renders some status badges with the wrong colors.
-- `workforce-svc` does not yet POST to `audit-svc` on assignment changes.
+- `workforce-svc` does not reject inactive employees, nonexistent assets, or
+  invalid return dates; it also does not POST assignment changes to `audit-svc`.
+- Notification delivery has no queue or retry, and workforce silently discards
+  notification failures.
+- Test coverage and ordinary application CI are intentionally incomplete on
+  `main`; most comprehensive validation belongs to generated course states.
 
 See [`exercises.md`](exercises.md) for the full exercise list.
 
 ## Course exercises
 
 See [`exercises.md`](exercises.md). Each exercise is **atomic** — completing one is not a prerequisite for another. Exercises cover all five stacks (Astro, .NET, modern Java, Python, legacy Java) so learners can pick what's most useful to them.
+
+## Course branch infrastructure
+
+The application source on `main` is also the base for generated
+`start-of-module-*` learner branches. The deterministic branch generator,
+ordered patch deltas, expected tree hashes, and promotion workflows live under
+[`course-build/`](course-build/README.md).
+
+Contributors should change `main`, not generated learner branches or generated
+refs. The course workflows validate generated branch states; they are not a
+substitute for general CI on every application pull request.
 
 ## License
 
