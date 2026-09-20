@@ -68,9 +68,17 @@ data initialization, integration behavior, and currently unenforced rules.
    npm run dev
    ```
 
-   This starts all seven services as plain processes (no Docker required). A startup banner prints the URL. Run `npm run dev:verbose` if you need full log output instead of WARN-only.
+   This starts all seven application services and the read-only MCP schema
+   catalog as plain processes (no Docker required). A startup banner prints the
+   URLs. Run `npm run dev:verbose` if you need full log output instead of
+   WARN-only.
 
 4. Open http://localhost:4321 — that's the UI. Backend services listen on 5001–5006 if you want to hit them directly with `curl`.
+
+The MCP schema catalog listens at `http://localhost:5010/mcp`. It discovers the
+live development SQLite databases under `services/*/data/`; see
+[`mcp-servers/assettrack-catalog/README.md`](mcp-servers/assettrack-catalog/README.md)
+for its tools and configuration.
 
 ## Quick start (local without a devcontainer)
 

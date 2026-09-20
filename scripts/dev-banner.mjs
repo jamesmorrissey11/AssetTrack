@@ -3,6 +3,7 @@ const lines = [
   "",
   "  AssetTrack dev environment",
   "  → http://localhost:4321",
+  "  MCP schema catalog → http://localhost:5010/mcp",
   "",
   "  Services are starting (give it ~30s on first run).",
   "  Logs are at WARN level. Run `npm run dev:verbose` for full logs.",
