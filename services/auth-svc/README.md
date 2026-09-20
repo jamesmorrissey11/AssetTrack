@@ -1,7 +1,9 @@
-# auth-svc (Java 17 / Spring Boot 3.5 — a generation behind)
+# auth-svc (Java 21 / Spring Boot 4.1)
 
 > [!IMPORTANT]
-> This service is **a generation behind** the team's current cadence — Spring Boot 3.5, Java 17, raw JDBC, plain-text passwords. It is CVE-clean but due for a currency upgrade, and gives course learners a realistic modernization/security target.
+> This service has moved to the team's current Java 21 and Spring Boot 4.1
+> stack. JJWT uses its Gson serializer so the token path does not retain
+> Jackson 2 alongside Spring Boot 4's Jackson 3 defaults.
 
 Issues RS256 JWTs and exposes a JWKs document so other services can validate tokens.
 
@@ -28,9 +30,14 @@ Issues RS256 JWTs and exposes a JWKs document so other services can validate tok
 mvn spring-boot:run
 ```
 
+## Test
+
+```bash
+mvn test
+```
+
 ## Known smells (course material)
 
 - **SQL injection** in `UserRepository.findByUsername` (string concatenation). Course exercise target.
 - **Plain-text passwords** in the seeded database.
-- **No tests** in this module.
-- **Spring Boot 3.5 / Java 17** — a generation behind the team's Spring Boot 4 / Java 21 target; the currency-upgrade exercise (including the jjwt/serializer migration) brings it current.
+- The signing key is generated at startup, so restarting the service invalidates existing tokens.
